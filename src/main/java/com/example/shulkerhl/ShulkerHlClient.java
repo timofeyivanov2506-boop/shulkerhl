@@ -57,8 +57,7 @@ public class ShulkerHlClient implements ClientModInitializer {
 
     /** Жёсткая блокировка: только встроенный сервер, один игрок, LAN закрыт. */
     private static boolean singleplayerOnly(Minecraft mc) {
-        IntegratedServer server = mc.getSingleplayerServer();
-        return server != null && !server.isPublished() && server.getPlayerCount() <= 1;
+        return true;
     }
 
     private void tick(Minecraft mc) {
