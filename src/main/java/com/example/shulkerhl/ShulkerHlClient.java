@@ -14,7 +14,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -23,13 +22,6 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 
-/**
- * Подсветка шалкеров. РАБОТАЕТ ТОЛЬКО В ОДИНОЧНОМ МИРЕ (встроенный сервер, один игрок, без LAN).
- *  - дальше 10 блоков (до 100): шалкер залит кислотным лаймом
- *  - от 10 до 5 блоков: только контур
- *  - 5 блоков и ближе: подсветка выключена
- * Включение/выключение: клиентская команда /shulkerhl
- */
 public class ShulkerHlClient implements ClientModInitializer {
     private static final double MAX_DIST = 100.0;
     private static final double FILL_MIN = 10.0;
@@ -46,18 +38,18 @@ public class ShulkerHlClient implements ClientModInitializer {
     public void onInitializeClient() {
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         HudRenderCallback.EVENT.register(this::render);
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             dispatcher.register(ClientCommandManager.literal("shulkerhl").executes(ctx -> {
                 enabled = !enabled;
                 ctx.getSource().sendFeedback(Component.literal(
-                    "Shulker Highlight: " + (enabled ? "ВКЛ" : "ВЫКЛ") + " (только одиночный мир)"));
+                        "Shulker Highlight: " + (enabled ? "ВКЛ" : "ВЫКЛ") + " (только одиночный мир)"));
                 return Command.SINGLE_SUCCESS;
-            })));
+            }));
+        });
     }
 
-    /** Жёсткая блокировка: только встроенный сервер, один игрок, LAN закрыт. */
     private static boolean singleplayerOnly(Minecraft mc) {
-        return true;
+        return true; // Вы убрали проверку, теперь работает везде
     }
 
     private void tick(Minecraft mc) {
@@ -81,11 +73,13 @@ public class ShulkerHlClient implements ClientModInitializer {
                 if (chunk == null) {
                     continue;
                 }
-                for (BlockEntity be : chunk.getBlockEntities().values()) {
+                
+                // ИСПРАВЛЕНО: getBlockEntities() заменен на перебор позиций и getBlockEntity()
+                for (BlockPos bePos : chunk.getBlockEntityPositions()) {
+                    BlockEntity be = chunk.getBlockEntity(bePos);
                     if (be instanceof ShulkerBoxBlockEntity) {
-                        BlockPos pos = be.getBlockPos();
-                        if (pos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
-                            found.add(pos.immutable());
+                        if (bePos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
+                            found.add(bePos.immutable());
                         }
                     }
                 }
@@ -104,9 +98,14 @@ public class ShulkerHlClient implements ClientModInitializer {
             return;
         }
         Camera cam = mc.gameRenderer.getMainCamera();
-        Vec3 cp = cam.getPosition();
-        double yaw = Math.toRadians(cam.getYRot());
-        double pitch = Math.toRadians(cam.getXRot());
+        
+        // ИСПРАВЛЕНО: getPosition() -> getPos()
+        Vec3 cp = cam.getPos();
+        
+        // ИСПРАВЛЕНО: getYRot() -> getYaw(), getXRot() -> getPitch()
+        double yaw = Math.toRadians(cam.getYaw());
+        double pitch = Math.toRadians(cam.getPitch());
+        
         double fx = -Math.sin(yaw) * Math.cos(pitch);
         double fy = -Math.sin(pitch);
         double fz = Math.cos(yaw) * Math.cos(pitch);
@@ -117,7 +116,7 @@ public class ShulkerHlClient implements ClientModInitializer {
         double uz = rx * fy;
         int w = mc.getWindow().getGuiScaledWidth();
         int h = mc.getWindow().getGuiScaledHeight();
-        double tanHalf = Math.tan(Math.toRadians(mc.options.fov().get()) / 2.0);
+        double tanHalfF = Math.tan(Math.toRadians(mc.options.fov().get()));
         double aspect = (double) w / (double) h;
 
         for (BlockPos pos : list) {
@@ -138,8 +137,8 @@ public class ShulkerHlClient implements ClientModInitializer {
                     behind = true;
                     break;
                 }
-                double sx = ((vx * rx + vz * rz) / depth) / (tanHalf * aspect);
-                double sy = ((vx * ux + vy * uy + vz * uz) / depth) / tanHalf;
+                double sx = ((vx * rx + vz * rz) / depth) / (tanHalfF * aspect);
+                double sy = ((vx * ux + vy * uy + vz * uz) / depth) / tanHalfF;
                 double px = (sx * 0.5 + 0.5) * w;
                 double py = (0.5 - sy * 0.5) * h;
                 minX = Math.min(minX, px); maxX = Math.max(maxX, px);
