@@ -49,8 +49,7 @@ public class ShulkerHlClient implements ClientModInitializer {
     }
 
     private static boolean singleplayerOnly(Minecraft mc) {
-        // Жесткая блокировка снята (теперь работает везде)
-        return true; 
+        return true;
     }
 
     private void tick(Minecraft mc) {
@@ -76,7 +75,7 @@ public class ShulkerHlClient implements ClientModInitializer {
                     continue;
                 }
                 
-                // ИСПРАВЛЕНО: Используем getBlockEntities().values()
+                // ИСПРАВЛЕНО: В 1.21.11 снова доступен getBlockEntities().values()
                 for (BlockEntity be : chunk.getBlockEntities().values()) {
                     if (be instanceof ShulkerBoxBlockEntity) {
                         BlockPos pos = be.getBlockPos();
@@ -102,10 +101,10 @@ public class ShulkerHlClient implements ClientModInitializer {
         
         Camera cam = mc.gameRenderer.getMainCamera();
         
-        // ИСПРАВЛЕНО: Возвращены старые названия методов
-        Vec3 cp = cam.getPosition();
-        double yaw = Math.toRadians(cam.getYRot());
-        double pitch = Math.toRadians(cam.getXRot());
+        // ИСПРАВЛЕНО: В 1.21.11 методы называются getPos(), getYaw() и getPitch()
+        Vec3 cp = cam.getPos();
+        double yaw = Math.toRadians(cam.getYaw());
+        double pitch = Math.toRadians(cam.getPitch());
         
         double fx = -Math.sin(yaw) * Math.cos(pitch);
         double fy = -Math.sin(pitch);
@@ -124,7 +123,7 @@ public class ShulkerHlClient implements ClientModInitializer {
             double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
             double dist = Math.sqrt((cx - cp.x) * (cx - cp.x) + (cy - cp.y) * (cy - cp.y) + (cz - cp.z) * (cz - cp.z));
             
-            // ИСПРАВЛЕНО: Убрано условие dist <= OFF_MAX, которое ломало заливку
+            // ИСПРАВЛЕНО: Убран OFF_MAX, чтобы заливка работала
             if (dist > MAX_DIST) {
                 continue;
             }
