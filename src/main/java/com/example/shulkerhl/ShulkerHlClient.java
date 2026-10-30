@@ -4,6 +4,8 @@ import com.mojang.brigadier.Command;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -14,7 +16,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -25,22 +26,19 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 
 public class ShulkerHlClient implements ClientModInitializer {
-    private static final double MAX_HORIZONTAL = 100.0;
+    private static final double MAX_HORIZONTAL = 128.0; 
     private static final double FILL_MIN = 10.0;
-    private static final double OFF_MAX = 5.0;
     private static final double BEAM_TOP_Y = 320.0;
     private static final double BEAM_BOTTOM_Y = -64.0;
     private static final int MAX_BEAMS = 40;
     
-    // Цвета
-    private static final int RED_LINE = 0xFFFF0000;    // Ярко-красный контур
-    private static final int RED_FILL = 0x60FF0000;    // Полупрозрачная красная заливка
-    private static final int BLUE_BEAM = 0xCC0000FF;   // Ярко-синий луч
-    private static final int MAX_BOXES = 400;
-
+    private static final int RED_LINE = 0xFFFF0000;
+    private static final int RED_FILL = 0x60FF0000;
+    private static final int BLUE_BEAM = 0xCC0000FF;
+    
     private boolean enabled = true;
     private List<BlockPos> cache = List.of();
-    private int tickCounter = 0;
+    private final Map<BlockPos, Long> seenShulkers = new ConcurrentHashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -50,50 +48,66 @@ public class ShulkerHlClient implements ClientModInitializer {
             dispatcher.register(ClientCommandManager.literal("shulkerhl").executes(ctx -> {
                 enabled = !enabled;
                 ctx.getSource().sendFeedback(Component.literal(
-                    "Shulker Highlight: " + (enabled ? "ВКЛ" : "ВЫКЛ") + " (только одиночный мир)"));
+                    "Shulker Highlight: " + (enabled ? "ВКЛ" : "ВЫКЛ")));
                 return Command.SINGLE_SUCCESS;
             })));
     }
 
-    private static boolean singleplayerOnly(Minecraft mc) {
-        return true;
-    }
-
     private void tick(Minecraft mc) {
-        if (++tickCounter % 10 != 0) {
-            return;
-        }
         LocalPlayer player = mc.player;
         ClientLevel level = mc.level;
-        if (!enabled || player == null || level == null || !singleplayerOnly(mc)) {
+        if (!enabled || player == null || level == null) {
             cache = List.of();
             return;
         }
+        
+        long now = System.currentTimeMillis();
+        seenShulkers.entrySet().removeIf(entry -> now - entry.getValue() > 30_000);
+
         int pcx = player.blockPosition().getX() >> 4;
         int pcz = player.blockPosition().getZ() >> 4;
-        int range = (int) (MAX_HORIZONTAL / 16.0) + 1;
+        int range = 9; 
         double maxSq = MAX_HORIZONTAL * MAX_HORIZONTAL;
-        List<BlockPos> found = new ArrayList<>();
         
+        // 1. Сканируем чанки (даже если они не FULL, а просто загружены частично)
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
-                ChunkAccess access = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.FULL, false);
-                if (!(access instanceof LevelChunk chunk)) {
-                    continue;
-                }
-                for (BlockEntity be : chunk.getBlockEntities().values()) {
-                    if (be instanceof ShulkerBoxBlockEntity) {
-                        BlockPos pos = be.getBlockPos();
+                ChunkAccess chunk = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.EMPTY, false);
+                if (chunk == null) continue;
+                
+                // Ищем сущности блоков в этом чанке
+                for (Map.Entry<BlockPos, BlockEntity> entry : chunk.getBlockEntities().entrySet()) {
+                    if (entry.getValue() instanceof ShulkerBoxBlockEntity) {
+                        BlockPos pos = entry.getKey();
                         double ddx = pos.getX() + 0.5 - player.getX();
                         double ddz = pos.getZ() + 0.5 - player.getZ();
-                        if (ddx * ddx + ddz * ddz <= maxSq && found.size() < MAX_BOXES) {
-                            found.add(pos.immutable());
+                        if (ddx * ddx + ddz * ddz <= maxSq) {
+                            seenShulkers.put(pos.immutable(), now);
                         }
                     }
                 }
             }
         }
+        
+        // 2. Сканируем глобальный кэш сущностей блоков (на случай, если чанки не обновились)
+        for (BlockEntity be : level.getBlockEntities()) {
+             if (be instanceof ShulkerBoxBlockEntity) {
+                 BlockPos pos = be.getBlockPos();
+                 double ddx = pos.getX() + 0.5 - player.getX();
+                 double ddz = pos.getZ() + 0.5 - player.getZ();
+                 if (ddx * ddx + ddz * ddz <= maxSq) {
+                     seenShulkers.put(pos.immutable(), now);
+                 }
+             }
+        }
+
+        List<BlockPos> found = new ArrayList<>();
         BlockPos here = player.blockPosition();
+        for (BlockPos pos : seenShulkers.keySet()) {
+            if (pos.distSqr(here) <= maxSq) {
+                found.add(pos);
+            }
+        }
         found.sort(Comparator.comparingDouble(p -> p.distSqr(here)));
         cache = found;
     }
@@ -150,13 +164,14 @@ public class ShulkerHlClient implements ClientModInitializer {
 
     private void render(GuiGraphics g, DeltaTracker deltaTracker) {
         Minecraft mc = Minecraft.getInstance();
-        if (!enabled || mc.player == null || mc.level == null || mc.screen != null || !singleplayerOnly(mc)) {
+        if (!enabled || mc.player == null || mc.level == null || mc.screen != null) {
             return;
         }
         List<BlockPos> list = cache;
         if (list.isEmpty()) {
             return;
         }
+        
         Vec3 cp = mc.player.getEyePosition();
         double yaw = Math.toRadians(mc.player.getYRot());
         double pitch = Math.toRadians(mc.player.getXRot());
@@ -176,15 +191,13 @@ public class ShulkerHlClient implements ClientModInitializer {
 
         for (BlockPos pos : list) {
             double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
-            double dist = Math.sqrt((cx - cp.x) * (cx - cp.x) + (cy - cp.y) * (cy - cp.y) + (cz - cp.z) * (cz - cp.z));
             double hdx = cx - cp.x;
             double hdz = cz - cp.z;
-            if (Math.sqrt(hdx * hdx + hdz * hdz) > MAX_HORIZONTAL || dist <= OFF_MAX) {
+            if (Math.sqrt(hdx * hdx + hdz * hdz) > MAX_HORIZONTAL) {
                 continue;
             }
-            boolean fill = dist >= FILL_MIN;
+            boolean fill = Math.sqrt(hdx * hdx + hdz * hdz) >= FILL_MIN;
 
-            // --- Синий луч ---
             if (fill && beams < MAX_BEAMS) {
                 double ax = hdx * rx + hdz * rz;
                 double az = hdx * fx + hdz * fz;
@@ -213,7 +226,6 @@ public class ShulkerHlClient implements ClientModInitializer {
                 }
             }
 
-            // --- Красная рамка вокруг шалкера ---
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
             boolean behind = false;
             for (int i = 0; i < 8 && !behind; i++) {
@@ -239,8 +251,6 @@ public class ShulkerHlClient implements ClientModInitializer {
             int y1 = (int) Math.floor(Math.max(0, minY));
             int x2 = (int) Math.ceil(Math.min(w, maxX));
             int y2 = (int) Math.ceil(Math.min(h, maxY));
-            
-            // Делаем минимальный размер рамки 4х4 пикселя, чтобы на большом расстоянии шалкер не превращался в точку
             if (x2 - x1 < 4) {
                 int mid = (x1 + x2) / 2;
                 x1 = mid - 2;
@@ -251,11 +261,10 @@ public class ShulkerHlClient implements ClientModInitializer {
                 y1 = mid - 2;
                 y2 = mid + 2;
             }
-            
             if (fill) {
                 g.fill(x1, y1, x2, y2, RED_FILL);
             }
-            int th = 2; // Делаем рамку толще (2 пикселя) для яркости
+            int th = 2;
             g.fill(x1, y1, x2, y1 + th, RED_LINE);
             g.fill(x1, y2 - th, x2, y2, RED_LINE);
             g.fill(x1, y1, x1 + th, y2, RED_LINE);
