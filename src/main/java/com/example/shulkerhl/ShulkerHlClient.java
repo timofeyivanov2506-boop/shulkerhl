@@ -19,6 +19,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 
@@ -76,8 +77,8 @@ public class ShulkerHlClient implements ClientModInitializer {
         List<BlockPos> found = new ArrayList<>();
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
-                ChunkAccess chunk = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.FULL, false);
-                if (chunk == null) {
+                ChunkAccess access = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.FULL, false);
+                if (!(access instanceof LevelChunk chunk)) {
                     continue;
                 }
                 for (BlockEntity be : chunk.getBlockEntities().values()) {
