@@ -37,7 +37,7 @@ public class ShulkerHlClient implements ClientModInitializer {
     public void onInitializeClient() {
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         HudRenderCallback.EVENT.register(this::render);
-        
+
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             dispatcher.register(ClientCommandManager.literal("shulkerhl").executes(ctx -> {
                 enabled = !enabled;
@@ -67,20 +67,19 @@ public class ShulkerHlClient implements ClientModInitializer {
         int range = (int) (MAX_DIST / 16.0) + 1;
         double maxSq = MAX_DIST * MAX_DIST;
         List<BlockPos> found = new ArrayList<>();
-        
+
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
                 ChunkAccess chunk = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.FULL, false);
                 if (chunk == null) {
                     continue;
                 }
-                
-                // ИСПРАВЛЕНО: В 1.21.11 снова доступен getBlockEntities().values()
-                for (BlockEntity be : chunk.getBlockEntities().values()) {
-                    if (be instanceof ShulkerBoxBlockEntity) {
-                        BlockPos pos = be.getBlockPos();
-                        if (pos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
-                            found.add(pos.immutable());
+
+                // ИСПРАВЛЕНО: В 1.21.11 у ChunkAccess нет getBlockEntities(), перебираем позиции
+                for (BlockPos bePos : chunk.getBlockEntitiesPos()) {
+                    if (chunk.getBlockEntity(bePos) instanceof ShulkerBoxBlockEntity) {
+                        if (bePos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
+                            found.add(bePos.immutable());
                         }
                     }
                 }
@@ -98,14 +97,14 @@ public class ShulkerHlClient implements ClientModInitializer {
         if (list.isEmpty()) {
             return;
         }
-        
+
         Camera cam = mc.gameRenderer.getMainCamera();
-        
-        // ИСПРАВЛЕНО: В 1.21.11 методы называются getPos(), getYaw() и getPitch()
-        Vec3 cp = cam.getPos();
-        double yaw = Math.toRadians(cam.getYaw());
-        double pitch = Math.toRadians(cam.getPitch());
-        
+
+        // ИСПРАВЛЕНО: В 1.21.11 у Camera используются getPosition(), getYRot() и getXRot()
+        Vec3 cp = cam.getPosition();
+        double yaw = Math.toRadians(cam.getYRot());
+        double pitch = Math.toRadians(cam.getXRot());
+
         double fx = -Math.sin(yaw) * Math.cos(pitch);
         double fy = -Math.sin(pitch);
         double fz = Math.cos(yaw) * Math.cos(pitch);
@@ -122,16 +121,15 @@ public class ShulkerHlClient implements ClientModInitializer {
         for (BlockPos pos : list) {
             double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
             double dist = Math.sqrt((cx - cp.x) * (cx - cp.x) + (cy - cp.y) * (cy - cp.y) + (cz - cp.z) * (cz - cp.z));
-            
-            // ИСПРАВЛЕНО: Убран OFF_MAX, чтобы заливка работала
+
             if (dist > MAX_DIST) {
                 continue;
             }
-            
+
             boolean fill = dist >= FILL_MIN;
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
             boolean behind = false;
-            
+
             for (int i = 0; i < 8 && !behind; i++) {
                 double vx = pos.getX() + (i & 1) - cp.x;
                 double vy = pos.getY() + ((i >> 1) & 1) - cp.y;
@@ -148,21 +146,21 @@ public class ShulkerHlClient implements ClientModInitializer {
                 minX = Math.min(minX, px); maxX = Math.max(maxX, px);
                 minY = Math.min(minY, py); maxY = Math.max(maxY, py);
             }
-            
+
             if (behind || maxX < 0 || maxY < 0 || minX > w || minY > h) {
                 continue;
             }
-            
+
             int x1 = (int) Math.floor(Math.max(0, minX));
             int y1 = (int) Math.floor(Math.max(0, minY));
             int x2 = (int) Math.ceil(Math.min(w, maxX));
             int y2 = (int) Math.ceil(Math.min(h, maxY));
-            
+
             if (x2 - x1 < 2 || y2 - y1 < 2) {
                 x2 = x1 + 2;
                 y2 = y1 + 2;
             }
-            
+
             if (fill) {
                 g.fill(x1, y1, x2, y2, LIME_FILL);
             }
