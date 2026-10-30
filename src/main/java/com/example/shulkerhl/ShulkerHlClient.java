@@ -25,13 +25,13 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Подсветка шалкеров. РАБОТАЕТ ТОЛЬКО В ОДИНОЧНОМ МИРЕ (встроенный сервер, один игрок, без LAN).
- *  - дальше 10 блоков (до 100): шалкер залит кислотным лаймом
+ *  - дальше 10 блоков (до 100 по горизонтали, по высоте без ограничения): шалкер залит кислотным лаймом
  *  - от 10 до 5 блоков: только контур
  *  - 5 блоков и ближе: подсветка выключена
  * Включение/выключение: клиентская команда /shulkerhl
  */
 public class ShulkerHlClient implements ClientModInitializer {
-    private static final double MAX_DIST = 100.0;
+    private static final double MAX_HORIZONTAL = 100.0; // по высоте ограничения нет
     private static final double FILL_MIN = 10.0;
     private static final double OFF_MAX = 5.0;
     private static final int LIME = 0xFFB7FF00;
@@ -72,8 +72,8 @@ public class ShulkerHlClient implements ClientModInitializer {
         }
         int pcx = player.blockPosition().getX() >> 4;
         int pcz = player.blockPosition().getZ() >> 4;
-        int range = (int) (MAX_DIST / 16.0) + 1;
-        double maxSq = MAX_DIST * MAX_DIST;
+        int range = (int) (MAX_HORIZONTAL / 16.0) + 1;
+        double maxSq = MAX_HORIZONTAL * MAX_HORIZONTAL;
         List<BlockPos> found = new ArrayList<>();
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
@@ -84,7 +84,9 @@ public class ShulkerHlClient implements ClientModInitializer {
                 for (BlockEntity be : chunk.getBlockEntities().values()) {
                     if (be instanceof ShulkerBoxBlockEntity) {
                         BlockPos pos = be.getBlockPos();
-                        if (pos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
+                        double ddx = pos.getX() + 0.5 - player.getX();
+                        double ddz = pos.getZ() + 0.5 - player.getZ();
+                        if (ddx * ddx + ddz * ddz <= maxSq && found.size() < MAX_BOXES) {
                             found.add(pos.immutable());
                         }
                     }
@@ -122,7 +124,9 @@ public class ShulkerHlClient implements ClientModInitializer {
         for (BlockPos pos : list) {
             double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
             double dist = Math.sqrt((cx - cp.x) * (cx - cp.x) + (cy - cp.y) * (cy - cp.y) + (cz - cp.z) * (cz - cp.z));
-            if (dist > MAX_DIST || dist <= OFF_MAX) {
+            double hdx = cx - cp.x;
+            double hdz = cz - cp.z;
+            if (Math.sqrt(hdx * hdx + hdz * hdz) > MAX_HORIZONTAL || dist <= OFF_MAX) {
                 continue;
             }
             boolean fill = dist >= FILL_MIN;
@@ -151,9 +155,16 @@ public class ShulkerHlClient implements ClientModInitializer {
             int y1 = (int) Math.floor(Math.max(0, minY));
             int x2 = (int) Math.ceil(Math.min(w, maxX));
             int y2 = (int) Math.ceil(Math.min(h, maxY));
-            if (x2 - x1 < 2 || y2 - y1 < 2) {
-                x2 = x1 + 2;
-                y2 = y1 + 2;
+            // далёкие шалкеры (например, с высоты полёта) показываем точкой минимум 4x4 пикселя
+            if (x2 - x1 < 4) {
+                int mid = (x1 + x2) / 2;
+                x1 = mid - 2;
+                x2 = mid + 2;
+            }
+            if (y2 - y1 < 4) {
+                int mid = (y1 + y2) / 2;
+                y1 = mid - 2;
+                y2 = mid + 2;
             }
             if (fill) {
                 g.fill(x1, y1, x2, y2, LIME_FILL);
