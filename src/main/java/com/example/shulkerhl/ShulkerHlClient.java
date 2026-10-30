@@ -24,24 +24,18 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 
-/**
- * Подсветка шалкеров. РАБОТАЕТ ТОЛЬКО В ОДИНОЧНОМ МИРЕ (встроенный сервер, один игрок, без LAN).
- *  - дальше 10 блоков (до 100 по горизонтали, по высоте без ограничения):
- *      шалкер залит кислотным лаймом + вертикальная метка-столб от верха мира до низа
- *  - от 10 до 5 блоков: только контур
- *  - 5 блоков и ближе: подсветка выключена
- * Включение/выключение: клиентская команда /shulkerhl
- */
 public class ShulkerHlClient implements ClientModInitializer {
-    private static final double MAX_HORIZONTAL = 100.0; // по высоте ограничения нет
+    private static final double MAX_HORIZONTAL = 100.0;
     private static final double FILL_MIN = 10.0;
     private static final double OFF_MAX = 5.0;
     private static final double BEAM_TOP_Y = 320.0;
     private static final double BEAM_BOTTOM_Y = -64.0;
     private static final int MAX_BEAMS = 40;
-    private static final int LIME = 0xFFB7FF00;
-    private static final int LIME_FILL = 0xB0B7FF00;
-    private static final int BEAM = 0xCCB7FF00;
+    
+    // Цвета
+    private static final int RED_LINE = 0xFFFF0000;    // Ярко-красный контур
+    private static final int RED_FILL = 0x60FF0000;    // Полупрозрачная красная заливка
+    private static final int BLUE_BEAM = 0xCC0000FF;   // Ярко-синий луч
     private static final int MAX_BOXES = 400;
 
     private boolean enabled = true;
@@ -61,10 +55,8 @@ public class ShulkerHlClient implements ClientModInitializer {
             })));
     }
 
-    /** Жёсткая блокировка: только встроенный сервер, один игрок, LAN закрыт. */
     private static boolean singleplayerOnly(Minecraft mc) {
-        IntegratedServer server = mc.getSingleplayerServer();
-        return server != null && !server.isPublished() && server.getPlayerCount() <= 1;
+        return true;
     }
 
     private void tick(Minecraft mc) {
@@ -82,6 +74,7 @@ public class ShulkerHlClient implements ClientModInitializer {
         int range = (int) (MAX_HORIZONTAL / 16.0) + 1;
         double maxSq = MAX_HORIZONTAL * MAX_HORIZONTAL;
         List<BlockPos> found = new ArrayList<>();
+        
         for (int dx = -range; dx <= range; dx++) {
             for (int dz = -range; dz <= range; dz++) {
                 ChunkAccess access = level.getChunk(pcx + dx, pcz + dz, ChunkStatus.FULL, false);
@@ -105,7 +98,6 @@ public class ShulkerHlClient implements ClientModInitializer {
         cache = found;
     }
 
-    /** Обрезка отрезка по границам экрана (Лианг-Барски). p = {x1, y1, x2, y2}. */
     private static boolean clip(double[] p, int w, int h) {
         double x1 = p[0], y1 = p[1], x2 = p[2], y2 = p[3];
         double dx = x2 - x1, dy = y2 - y1;
@@ -114,9 +106,7 @@ public class ShulkerHlClient implements ClientModInitializer {
         double[] qq = {x1, w - x1, y1, h - y1};
         for (int i = 0; i < 4; i++) {
             if (pp[i] == 0.0) {
-                if (qq[i] < 0.0) {
-                    return false;
-                }
+                if (qq[i] < 0.0) return false;
             } else {
                 double r = qq[i] / pp[i];
                 if (pp[i] < 0.0) {
@@ -135,7 +125,6 @@ public class ShulkerHlClient implements ClientModInitializer {
         return true;
     }
 
-    /** Рисует толстую линию короткими прямоугольниками. */
     private static void drawBeam(GuiGraphics g, double x1, double y1, double x2, double y2) {
         double ddx = x2 - x1, ddy = y2 - y1;
         if (Math.abs(ddy) >= Math.abs(ddx)) {
@@ -145,7 +134,7 @@ public class ShulkerHlClient implements ClientModInitializer {
                 double xa = x1 + ddx * ta, xb = x1 + ddx * tb;
                 double ya = y1 + ddy * ta, yb = y1 + ddy * tb;
                 g.fill((int) Math.floor(Math.min(xa, xb)) - 1, (int) Math.floor(Math.min(ya, yb)),
-                       (int) Math.ceil(Math.max(xa, xb)) + 1, (int) Math.ceil(Math.max(ya, yb)) + 1, BEAM);
+                       (int) Math.ceil(Math.max(xa, xb)) + 1, (int) Math.ceil(Math.max(ya, yb)) + 1, BLUE_BEAM);
             }
         } else {
             int steps = Math.max(1, (int) Math.ceil(Math.abs(ddx) / 4.0));
@@ -154,7 +143,7 @@ public class ShulkerHlClient implements ClientModInitializer {
                 double xa = x1 + ddx * ta, xb = x1 + ddx * tb;
                 double ya = y1 + ddy * ta, yb = y1 + ddy * tb;
                 g.fill((int) Math.floor(Math.min(xa, xb)), (int) Math.floor(Math.min(ya, yb)) - 1,
-                       (int) Math.ceil(Math.max(xa, xb)) + 1, (int) Math.ceil(Math.max(ya, yb)) + 1, BEAM);
+                       (int) Math.ceil(Math.max(xa, xb)) + 1, (int) Math.ceil(Math.max(ya, yb)) + 1, BLUE_BEAM);
             }
         }
     }
@@ -195,12 +184,11 @@ public class ShulkerHlClient implements ClientModInitializer {
             }
             boolean fill = dist >= FILL_MIN;
 
-            // --- вертикальная метка от верха мира до низа ---
+            // --- Синий луч ---
             if (fill && beams < MAX_BEAMS) {
                 double ax = hdx * rx + hdz * rz;
                 double az = hdx * fx + hdz * fz;
                 double aTopY = BEAM_TOP_Y - cp.y, aBotY = BEAM_BOTTOM_Y - cp.y;
-                // точки в пространстве камеры: (право, верх, глубина)
                 double[] t = {ax, hdx * ux + aTopY * uy + hdz * uz, az + aTopY * fy};
                 double[] b = {ax, hdx * ux + aBotY * uy + hdz * uz, az + aBotY * fy};
                 double near = 0.1;
@@ -225,7 +213,7 @@ public class ShulkerHlClient implements ClientModInitializer {
                 }
             }
 
-            // --- рамка / заливка вокруг самого шалкера ---
+            // --- Красная рамка вокруг шалкера ---
             double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
             boolean behind = false;
             for (int i = 0; i < 8 && !behind; i++) {
@@ -251,6 +239,8 @@ public class ShulkerHlClient implements ClientModInitializer {
             int y1 = (int) Math.floor(Math.max(0, minY));
             int x2 = (int) Math.ceil(Math.min(w, maxX));
             int y2 = (int) Math.ceil(Math.min(h, maxY));
+            
+            // Делаем минимальный размер рамки 4х4 пикселя, чтобы на большом расстоянии шалкер не превращался в точку
             if (x2 - x1 < 4) {
                 int mid = (x1 + x2) / 2;
                 x1 = mid - 2;
@@ -261,14 +251,15 @@ public class ShulkerHlClient implements ClientModInitializer {
                 y1 = mid - 2;
                 y2 = mid + 2;
             }
+            
             if (fill) {
-                g.fill(x1, y1, x2, y2, LIME_FILL);
+                g.fill(x1, y1, x2, y2, RED_FILL);
             }
-            int th = fill ? 1 : 2;
-            g.fill(x1, y1, x2, y1 + th, LIME);
-            g.fill(x1, y2 - th, x2, y2, LIME);
-            g.fill(x1, y1, x1 + th, y2, LIME);
-            g.fill(x2 - th, y1, x2, y2, LIME);
+            int th = 2; // Делаем рамку толще (2 пикселя) для яркости
+            g.fill(x1, y1, x2, y1 + th, RED_LINE);
+            g.fill(x1, y2 - th, x2, y2, RED_LINE);
+            g.fill(x1, y1, x1 + th, y2, RED_LINE);
+            g.fill(x2 - th, y1, x2, y2, RED_LINE);
         }
     }
 }
