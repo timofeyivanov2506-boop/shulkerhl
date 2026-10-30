@@ -75,9 +75,9 @@ public class ShulkerHlClient implements ClientModInitializer {
                     continue;
                 }
 
-                // ИСПРАВЛЕНО: В 1.21.11 у ChunkAccess нет getBlockEntities(), перебираем позиции
                 for (BlockPos bePos : chunk.getBlockEntitiesPos()) {
-                    if (chunk.getBlockEntity(bePos) instanceof ShulkerBoxBlockEntity) {
+                    BlockEntity be = chunk.getBlockEntity(bePos);
+                    if (be instanceof ShulkerBoxBlockEntity) {
                         if (bePos.distSqr(player.blockPosition()) <= maxSq && found.size() < MAX_BOXES) {
                             found.add(bePos.immutable());
                         }
@@ -100,10 +100,10 @@ public class ShulkerHlClient implements ClientModInitializer {
 
         Camera cam = mc.gameRenderer.getMainCamera();
 
-        // ИСПРАВЛЕНО: В 1.21.11 у Camera используются getPosition(), getYRot() и getXRot()
-        Vec3 cp = cam.getPosition();
-        double yaw = Math.toRadians(cam.getYRot());
-        double pitch = Math.toRadians(cam.getXRot());
+        // ИСПРАВЛЕНО под 1.21.11: getPos(), getYaw(), getPitch()
+        Vec3 cp = cam.getPos();
+        double yaw = Math.toRadians(cam.getYaw());
+        double pitch = Math.toRadians(cam.getPitch());
 
         double fx = -Math.sin(yaw) * Math.cos(pitch);
         double fy = -Math.sin(pitch);
